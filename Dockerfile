@@ -19,13 +19,14 @@ COPY src ./src
 
 RUN npm run build
 
-# Install Chrome for Puppeteer
-RUN npx puppeteer browsers install chrome
+# Install Chrome for Puppeteer and create cache directory
+RUN mkdir -p /app/.cache/puppeteer && \
+    npx puppeteer browsers install chrome && \
+    chmod -R 755 /app/.cache/puppeteer
 
 ENV NODE_ENV=production \
     PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=false \
-    PUPPETEER_CACHE_DIR=/app/.cache/puppeteer \
-    PUPPETEER_EXECUTABLE_PATH=/app/.cache/puppeteer/chrome/linux-131.0.6778.204/chrome-linux64/chrome
+    PUPPETEER_CACHE_DIR=/app/.cache/puppeteer
 
 EXPOSE 3000
 
