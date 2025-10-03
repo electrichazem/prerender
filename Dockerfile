@@ -19,6 +19,9 @@ COPY src ./src
 
 RUN npm run build
 
+# Install Chrome for Puppeteer
+RUN npx puppeteer browsers install chrome
+
 ENV NODE_ENV=production \
     PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=false \
     PUPPETEER_CACHE_DIR=/app/.cache/puppeteer
