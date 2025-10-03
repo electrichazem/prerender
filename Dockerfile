@@ -24,7 +24,8 @@ RUN npx puppeteer browsers install chrome
 
 ENV NODE_ENV=production \
     PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=false \
-    PUPPETEER_CACHE_DIR=/app/.cache/puppeteer
+    PUPPETEER_CACHE_DIR=/app/.cache/puppeteer \
+    PUPPETEER_EXECUTABLE_PATH=/app/.cache/puppeteer/chrome/linux-131.0.6778.204/chrome-linux64/chrome
 
 EXPOSE 3000
 
