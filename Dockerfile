@@ -10,13 +10,6 @@ RUN apt-get update && apt-get install -y \
   libxrender1 libxss1 libxtst6 lsb-release wget xdg-utils \
   && rm -rf /var/lib/apt/lists/*
 
-# Install Google Chrome directly
-RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | apt-key add - \
-  && echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
-  && apt-get update \
-  && apt-get install -y google-chrome-stable \
-  && rm -rf /var/lib/apt/lists/*
-
 WORKDIR /app
 
 COPY package.json tsconfig.json ./
@@ -26,9 +19,13 @@ COPY src ./src
 
 RUN npm run build
 
+# Install Chrome for Puppeteer
+RUN npx puppeteer browsers install chrome
+
 ENV NODE_ENV=production \
-    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome
+    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=false \
+    PUPPETEER_CACHE_DIR=/app/.cache/puppeteer \
+    PUPPETEER_EXECUTABLE_PATH=/app/.cache/puppeteer/chrome/linux-131.0.6778.204/chrome-linux64/chrome
 
 EXPOSE 3000
 
