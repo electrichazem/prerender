@@ -105,7 +105,8 @@ export class Renderer {
       await page.waitForSelector(wait.selector, { timeout: wait.timeoutMs }).catch(() => undefined);
       return;
     }
-    await page.waitForTimeout(wait.timeoutMs);
+    // Fallback simple delay when using timeout strategy
+    await new Promise<void>(resolve => setTimeout(resolve, wait.timeoutMs));
   }
 
   private pickResponseHeaders(headers: Record<string, string>): Record<string, string> {
