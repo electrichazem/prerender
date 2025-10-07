@@ -14,6 +14,7 @@ export class Renderer {
 
   private async getBrowser(): Promise<Browser> {
     if (!this.browserPromise) {
+      console.log('🚀 Launching browser...');
       this.browserPromise = puppeteer.launch({
         args: [
           '--no-sandbox',
@@ -23,43 +24,59 @@ export class Renderer {
           '--no-zygote',
           '--single-process'
         ],
-        headless: true
+        headless: true,
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH
+      }).then(browser => {
+        console.log('✅ Browser launched successfully');
+        return browser;
+      }).catch(error => {
+        console.error('❌ Failed to launch browser:', error);
+        throw error;
       });
     }
     return this.browserPromise;
   }
 
   async render(fullUrl: string): Promise<RenderResult> {
+    console.log(`🎬 Starting render for: ${fullUrl}`);
     const browser = await this.getBrowser();
     const page = await browser.newPage();
+    
     try {
+      console.log('📄 Setting up page...');
       await page.setUserAgent(this.config.userAgent);
       await page.setRequestInterception(true);
 
+      // Add detailed request logging
       page.on('request', (req: HTTPRequest) => {
         const resourceType = req.resourceType();
         if (resourceType === 'image' || resourceType === 'media' || resourceType === 'font') {
+          console.log(`🚫 Blocked ${resourceType}: ${req.url()}`);
           req.abort();
           return;
         }
-        
-        // Rewrite URLs that point to localhost:3000 to use the correct origin
-        const requestUrl = req.url();
-        console.log(`Request: ${requestUrl}`);
-        
-        if (requestUrl.includes('localhost:3000') || requestUrl.includes('127.0.0.1:3000')) {
-          const url = new URL(requestUrl);
-          const newUrl = new URL(url.pathname + url.search + url.hash, this.config.baseOrigin);
-          console.log(`Rewriting ${requestUrl} -> ${newUrl.toString()}`);
-          req.continue({ url: newUrl.toString() });
-          return;
-        }
-        
+        console.log(`✅ Allowing ${resourceType}: ${req.url()}`);
         req.continue();
       });
 
+      // Add response logging
+      page.on('response', (response) => {
+        console.log(`📡 Response ${response.status()}: ${response.url()}`);
+      });
+
+      // Add console logging from the page
+      page.on('console', (msg) => {
+        console.log(`🖥️  Browser console: ${msg.type()}: ${msg.text()}`);
+      });
+
+      // Add page error logging
+      page.on('pageerror', (error) => {
+        console.error(`❌ Page error: ${error.message}`);
+      });
+
+      console.log('🌐 Navigating to page...');
       const response = await page.goto(fullUrl, {
-        waitUntil: ['domcontentloaded'],
+        waitUntil: ['domcontentloaded', 'networkidle0'],
         timeout: this.config.maxRenderTimeMs
       });
 
@@ -67,61 +84,48 @@ export class Renderer {
         throw new Error('No response received');
       }
 
+      console.log(`📊 Initial response status: ${response.status()}`);
+
+      // Wait for content with detailed logging
+      console.log('⏳ Applying wait strategy...');
       await this.applyWaitStrategy(page, this.config.waitStrategy);
 
-      // Inject base tag to fix relative URLs
-      await page.evaluate((baseOrigin) => {
-        const base = document.createElement('base');
-        base.href = baseOrigin;
-        document.head.insertBefore(base, document.head.firstChild);
-      }, this.config.baseOrigin);
+      // Additional wait for dynamic content
+      console.log('🕒 Waiting for dynamic content...');
+      await new Promise(resolve => setTimeout(resolve, 3000));
+
+      // Check what content we have before getting HTML
+      const contentInfo = await page.evaluate(() => {
+        const bodyText = document.body.innerText || '';
+        const bodyHTML = document.body.innerHTML || '';
+        
+        return {
+          title: document.title,
+          bodyTextLength: bodyText.length,
+          bodyHTMLength: bodyHTML.length,
+          hasMain: !!document.querySelector('main'),
+          hasRoot: !!document.querySelector('#root'),
+          hasApp: !!document.querySelector('#app'),
+          allElements: document.querySelectorAll('*').length,
+          visibleText: bodyText.substring(0, 200) + '...'
+        };
+      });
+
+      console.log('📋 Content analysis:', JSON.stringify(contentInfo, null, 2));
+
+      // Take a screenshot for debugging (optional)
+      // await page.screenshot({ path: '/tmp/debug-screenshot.png', fullPage: true });
+      // console.log('📸 Screenshot saved');
 
       let html = await page.content();
+      console.log(`📄 Retrieved HTML length: ${html.length} characters`);
 
-      // Also rewrite any remaining localhost:3000 URLs in the HTML content
-      html = html.replace(/http:\/\/localhost:3000/g, this.config.baseOrigin);
-      html = html.replace(/https:\/\/localhost:3000/g, this.config.baseOrigin);
+      // Log a preview of the HTML
+      console.log(`👀 HTML preview (first 500 chars): ${html.substring(0, 500)}...`);
 
-      // Strip script tags and manifest links to avoid CORS/runtime errors when viewing snapshot in a browser
-      // Remove all <script>... tags (both inline and external)
-      html = html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
-      // Remove <link rel="manifest" ...>
-      html = html.replace(/<link\b[^>]*rel=["']manifest["'][^>]*>/gi, '');
-      
-      const status = response.status();
-      const headers = response.headers();
-      return { html, status, headers: this.pickResponseHeaders(headers) };
-    } finally {
-      await page.close({ runBeforeUnload: false });
-    }
-  }
+      // Check if we have meaningful content
+      if (contentInfo.bodyTextLength < 100) {
+        console.warn('⚠️ Warning: Very little text content detected. The page might not have rendered properly.');
+      }
 
-  private async applyWaitStrategy(page: Page, wait: WaitStrategy): Promise<void> {
-    if (wait.type === 'network-idle') {
-      await page.waitForNetworkIdle({ idleTime: 500, timeout: wait.timeoutMs }).catch(() => undefined);
-      return;
-    }
-    if (wait.type === 'selector') {
-      await page.waitForSelector(wait.selector, { timeout: wait.timeoutMs }).catch(() => undefined);
-      return;
-    }
-    // Fallback simple delay when using timeout strategy
-    await new Promise<void>(resolve => setTimeout(resolve, wait.timeoutMs));
-  }
-
-  private pickResponseHeaders(headers: Record<string, string>): Record<string, string> {
-    const allow = ['content-type', 'cache-control', 'etag', 'last-modified'];
-    const out: Record<string, string> = {};
-    for (const k of allow) {
-      if (headers[k]) out[k] = headers[k];
-    }
-    out['x-prerendered'] = '1';
-    return out;
-  }
-}
-
-
-
-
-
-
+      //
