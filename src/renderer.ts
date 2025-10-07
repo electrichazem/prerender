@@ -128,4 +128,63 @@ export class Renderer {
         console.warn('⚠️ Warning: Very little text content detected. The page might not have rendered properly.');
       }
 
-      //
+      // Strip script tags and manifest links
+      const originalLength = html.length;
+      html = html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
+      html = html.replace(/<link\b[^>]*rel=["']manifest["'][^>]*>/gi, '');
+      console.log(`✂️  Removed scripts, HTML length changed: ${originalLength} -> ${html.length}`);
+      
+      const status = response.status();
+      const headers = response.headers();
+      
+      console.log(`✅ Render completed successfully. Status: ${status}, Final HTML length: ${html.length}`);
+      return { html, status, headers: this.pickResponseHeaders(headers) };
+    } catch (error) {
+      console.error('💥 Error during rendering:', error);
+      throw error;
+    } finally {
+      console.log('🧹 Closing page...');
+      await page.close({ runBeforeUnload: false });
+    }
+  }
+
+  private async applyWaitStrategy(page: Page, wait: WaitStrategy): Promise<void> {
+    console.log(`⏰ Wait strategy: ${wait.type}, timeout: ${wait.timeoutMs}ms`);
+    
+    if (wait.type === 'network-idle') {
+      console.log('📶 Waiting for network idle...');
+      try {
+        await page.waitForNetworkIdle({ idleTime: 1000, timeout: wait.timeoutMs });
+        console.log('✅ Network idle achieved');
+      } catch (error) {
+        console.log('⚠️ Network idle wait completed (may have timed out)');
+      }
+      return;
+    }
+    
+    if (wait.type === 'selector') {
+      console.log(`🔍 Waiting for selector: ${wait.selector}`);
+      try {
+        await page.waitForSelector(wait.selector, { timeout: wait.timeoutMs });
+        console.log('✅ Selector found');
+      } catch (error) {
+        console.log('⚠️ Selector wait completed (may have timed out)');
+      }
+      return;
+    }
+    
+    console.log(`⏱️  Waiting for timeout: ${wait.timeoutMs}ms`);
+    await new Promise<void>(resolve => setTimeout(resolve, wait.timeoutMs));
+    console.log('✅ Timeout wait completed');
+  }
+
+  private pickResponseHeaders(headers: Record<string, string>): Record<string, string> {
+    const allow = ['content-type', 'cache-control', 'etag', 'last-modified'];
+    const out: Record<string, string> = {};
+    for (const k of allow) {
+      if (headers[k]) out[k] = headers[k];
+    }
+    out['x-prerendered'] = '1';
+    return out;
+  }
+}
